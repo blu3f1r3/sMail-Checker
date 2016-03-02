@@ -196,7 +196,7 @@ def testAccountsIMAP(providers_imap, sleep):
 
             except:
                 print c.FAIL+"[!] "+email+"\t failed!"+c.ENDC
-                invalid.append(email+":"+passwd)
+                #invalid.append(email+":"+passwd)
                 if args.invalid!=False:
                     try:
                         writeIntoFile(args.invalid, email+":"+passwd)
