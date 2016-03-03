@@ -254,7 +254,7 @@ class Provider:
 
 
 # List of Providers:
-providers.append(Provider("hs-weingarten.de", "mail.hs-weingarten.de", 995))
+
 providers.append(Provider("gmail.com", "pop.gmail.com", 995))
 providers.append(Provider("gmx.net", "pop.gmx.net", 995))
 providers.append(Provider("web.de", "pop3.web.de", 995))
@@ -291,7 +291,6 @@ providers.append(Provider("unitybox.de", "mail.unitybox.de", 995))
 providers.append(Provider("strato.de", "pop3.strato.de", 110))
 
 
-providers_imap.append(Provider("hs-weingarten.de", "mail.hs-weingarten.de", 993))
 providers_imap.append(Provider("hotmail.com", "imap-mail.outlook.com", 993))
 providers_imap.append(Provider("live.com", "imap-mail.outlook.com", 993))
 providers_imap.append(Provider("live.de", "imap-mail.outlook.com", 993))
