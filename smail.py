@@ -14,6 +14,8 @@ import Provider
 import threading
 import Queue
 import socket
+from collections import Counter
+import prettytable
 
 parser = argparse.ArgumentParser(description='This tool checks a given list for valid email accounts (testing default: POP3)')
 parser.add_argument('-f','--file', help='File with <email>:<pass> each line',required=False,default=None)
@@ -27,6 +29,7 @@ parser.add_argument('-i','--imap', help='use IMAP first, then POP3 for unchecked
 parser.add_argument('-v','--verbose', help='Show Debug-msgs.',required=False,action="store_true")
 parser.add_argument('-l','--list', help='List all supported provider tags',required=False,action="store_true")
 parser.add_argument('-c','--colorize', help='Add color to output',required=False,action="store_true")
+parser.add_argument('-a','--accountsprovider', help='List all providers from email addresses',required=False,action="store_true")
 
 args = parser.parse_args()
 
@@ -62,10 +65,9 @@ class c:
         UNDERLINE = '\033[4m'
 
 def main():
-
     addProvidersFromXML()
 
-    print  c.HEADER+"[***************************]"
+    print c.HEADER+"[***************************]"
     print "[*  sMail Account Checker  *]"
     print "[***************************]"+c.ENDC
     print c.FAIL+"    ---- by m0nk3y ----"+c.ENDC
@@ -73,11 +75,11 @@ def main():
 
     if args.list:
         listProviders()
-        exit(1)
+        return
 
     if args.file == None:
         print c.FAIL+c.BOLD+"No inputfile given. Try --help for more info"+c.ENDC
-        exit(1)
+        return
     print "[~] File: " + c.BOLD+ args.file + c.ENDC
     print "[~] Sleep: " + c.BOLD+ str(args.sleep) + c.ENDC
     print "[~] Threads: " + c.BOLD+ str(args.threads) + c.ENDC
@@ -88,6 +90,18 @@ def main():
 
     print "[~] Acounts in file: " + c.BOLD+ str(len(accounts)) + c.ENDC
     time.sleep(2)
+
+    # List providers from accounts
+    if args.accountsprovider:
+        if args.file == None:
+            print "[!] No file with accounts ( use -f FILE )"
+            return
+        if len(accounts) > 0:
+            printProvidersFromEmails(accounts)
+            return
+        print "[!] No accounts could be found"
+        return
+
     print c.BOLD+c.WARNING+"[*] Testing Accounts"+c.ENDC
 
     if len(accounts) > 0 and args.threads > 0:
@@ -105,7 +119,6 @@ def main():
         print c.FAIL+c.BOLD+"\nCouldn't find any account in your file (wrong filename?)\n"+c.ENDC
         print "-> "+args.file
 
-
 def create_workers(i):
 
     for _ in range(int(i)):
@@ -113,8 +126,6 @@ def create_workers(i):
         threads.append(t)
         #t.daemon = True
         t.start()
-
-
 
 def work():
     while True:
@@ -308,6 +319,32 @@ def login(service, email, passwd):
 
     return False
 
+def printProvidersFromEmails(accounts):
+
+    providers_from_mail = []
+    for acc in accounts:
+        email = acc[0]
+        email = email.split("@")[1]
+        providers_from_mail.append(email)
+        #print email
+
+    co = Counter(providers_from_mail)
+
+    t = prettytable.PrettyTable(['Provider', 'Count', 'Available'])
+
+    print "\n[!] List of providers from file:\n"
+    for key, value in co.most_common():
+        #print key + ": \t\t\t"+str(value)
+        ava = "no"
+        for p in providers:
+            if p.getDomain() == key:
+                ava = "yes"
+                break;
+
+        t.add_row([key, value, ava])
+
+    print t
+
 def testAccounts(providers,sleep):
     global results
     global invalid
@@ -344,52 +381,6 @@ def testAccounts(providers,sleep):
 
             time.sleep(sleep)
 
-def testAccountsIMAP(providers_imap, sleep):
-    global results
-    global invalid
-    global accounts
-
-    for provider in providers_imap:
-        if args.provider != None:
-            if provider.tag != args.provider:
-                continue
-        print c.BOLD+"\n[*] Checking IMAP for provider "+c.UNDERLINE+provider.tag+c.ENDC
-
-        for acc in accounts:
-            if len(acc) != 2:
-                continue
-            email = acc[0]
-            passwd = acc[1]
-
-            if email.find(provider.tag) == -1:
-                continue
-            #print "[-] Checking "+email
-
-            try:
-                mail = imaplib.IMAP4_SSL(provider.server)
-                mail.login(email, passwd)
-                print c.BOLD+c.OKGREEN+"[!] "+email+"\t success!"+c.ENDC
-                typ, data = mail.list()
-                mail.logout()
-                results.append(email+":"+passwd)
-                accounts.remove(acc)
-                if args.output!=False:
-                    try:
-                        writeIntoFile(args.output, email+":"+passwd)
-                    except:
-                        PrintException()
-
-            except:
-                print c.FAIL+"[!] "+email+"\t failed!"+c.ENDC
-                #invalid.append(email+":"+passwd)
-                if args.invalid!=False:
-                    try:
-                        writeIntoFile(args.invalid, email+":"+passwd)
-                    except:
-                        PrintException()
-
-            time.sleep(sleep)
-
 def parseEmails(file):
     global accounts
     with open(file,'r') as f:
@@ -406,7 +397,6 @@ def PrintException():
     linecache.checkcache(filename)
     line = linecache.getline(filename, lineno, f.f_globals)
     print 'EXCEPTION IN ({}, LINE {} "{}"): {}'.format(filename, lineno, line.strip(), exc_obj)
-
 
 def writeIntoFile(filename, value):
     global c
@@ -431,9 +421,7 @@ def addProvidersFromXML():
         providers.append(prov)
         printl("added: "+ p.getDisplayName())
 
-
-
 # Here starts the magic :)
 start_time = time.time()
 main()
-print("--- %s seconds ---" % (time.time() - start_time))
+print("\n--- %s seconds ---" % (time.time() - start_time))
