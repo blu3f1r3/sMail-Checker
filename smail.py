@@ -324,8 +324,12 @@ def printProvidersFromEmails(accounts):
     providers_from_mail = []
     for acc in accounts:
         email = acc[0]
-        email = email.split("@")[1]
-        providers_from_mail.append(email)
+        if email == "":
+            continue
+        email = email.split("@")
+        if len(email) < 2:
+            continue
+        providers_from_mail.append(email[1])
         #print email
 
     co = Counter(providers_from_mail)
@@ -339,7 +343,7 @@ def printProvidersFromEmails(accounts):
         for p in providers:
             if p.getDomain() == key:
                 ava = "yes"
-                break;
+                break
 
         t.add_row([key, value, ava])
 
@@ -386,8 +390,14 @@ def parseEmails(file):
     with open(file,'r') as f:
         #next(f) # skip headings
         reader=csv.reader(f,delimiter=':')
+
         for line in reader:
-           accounts.append(line)
+            if (len(line) < 2):
+                continue
+            #set lowercase email
+            line[0] = line[0].lower()
+            accounts.append(line)
+
 
 def PrintException():
     exc_type, exc_obj, tb = sys.exc_info()
